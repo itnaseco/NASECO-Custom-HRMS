@@ -30,10 +30,17 @@ def install_employee_custom_fields():
 					"read_only": 1,
 				},
 				{
+					"fieldname": "custom_contract_duration_months",
+					"fieldtype": "Int",
+					"label": "Contract Duration (Months)",
+					"insert_after": "custom_contract_type",
+					"read_only": 1,
+				},
+				{
 					"fieldname": "custom_contract_start_date",
 					"fieldtype": "Date",
 					"label": "Contract Start Date",
-					"insert_after": "custom_contract_type",
+					"insert_after": "custom_contract_duration_months",
 					"read_only": 1,
 				},
 				{

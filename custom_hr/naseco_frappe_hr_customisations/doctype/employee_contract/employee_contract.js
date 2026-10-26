@@ -9,7 +9,7 @@ frappe.ui.form.on("Employee Contract", {
 					{ fieldname: "change_type", fieldtype: "Select", label: __("Change Type"), options: "Renewal\nExtension\nConfirmation\nAmendment", reqd: 1 },
 					{ fieldname: "contract_type", fieldtype: "Select", label: __("Contract Type"), options: "Probationary\nFixed Term\nPermanent", default: frm.doc.contract_type, reqd: 1 },
 					{ fieldname: "start_date", fieldtype: "Date", label: __("Start Date"), reqd: 1 },
-					{ fieldname: "end_date", fieldtype: "Date", label: __("End Date") },
+					{ fieldname: "duration_months", fieldtype: "Int", label: __("Contract Duration (Months)"), depends_on: "eval:doc.contract_type!='Permanent'", mandatory_depends_on: "eval:doc.contract_type!='Permanent'" },
 				],
 				primary_action_label: __("Create Draft"),
 				primary_action(values) {

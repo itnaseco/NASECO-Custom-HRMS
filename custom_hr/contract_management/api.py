@@ -30,7 +30,7 @@ def get_contract_context(employee):
 
 
 @frappe.whitelist(methods=["POST"])
-def create_contract(employee, contract_type, start_date):
+def create_contract(employee, contract_type, start_date, contract_duration_months=None):
 	require_contract_manager()
 	if not frappe.db.exists("Employee", employee):
 		frappe.throw(_("Employee does not exist."))
@@ -39,6 +39,7 @@ def create_contract(employee, contract_type, start_date):
 			"doctype": "Employee Contract",
 			"employee": employee,
 			"contract_type": contract_type,
+			"contract_duration_months": contract_duration_months,
 			"start_date": start_date,
 			"change_type": "New",
 		}

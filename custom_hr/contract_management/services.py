@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_years, cint, getdate, today
+from frappe.utils import add_days, add_months, add_years, cint, getdate, today
 
 ACTIVE_STATUSES = ("Scheduled", "Active", "Expiring")
 SUMMARY_FIELDS = {
 	"custom_current_contract": "name",
 	"custom_contract_type": "contract_type",
+	"custom_contract_duration_months": "contract_duration_months",
 	"custom_contract_start_date": "start_date",
-	"custom_contract_end_date": "end_date",
 	"custom_probation_end_date": "probation_end_date",
 	"custom_contract_status": "status",
 	"custom_next_contract_review_date": "next_review_date",
@@ -28,6 +28,25 @@ def require_contract_manager():
 
 def get_effective_end_date(doc):
 	return doc.end_date or doc.probation_end_date
+
+
+def calculate_contract_end_date(start_date, duration_months):
+	"""Return the inclusive last day of a whole-month contract period."""
+	return add_months(add_days(start_date, -1), cint(duration_months))
+
+
+def get_employee_summary_values(contract=None):
+	values = {
+		fieldname: (contract.get(source) if contract else None)
+		for fieldname, source in SUMMARY_FIELDS.items()
+	}
+	# MariaDB stores Frappe Int fields as NOT NULL. Use zero when there is no
+	# current duration, including permanent and expired contracts.
+	values["custom_contract_duration_months"] = cint(
+		values.get("custom_contract_duration_months")
+	)
+	values["custom_contract_end_date"] = get_effective_end_date(contract) if contract else None
+	return values
 
 
 def calculate_status(doc, reference_date=None):
@@ -97,14 +116,11 @@ def sync_employee_summary(contract=None, employee=None):
 		)
 		if active_name:
 			contract = frappe.get_doc("Employee Contract", active_name)
-	values = {
-		fieldname: (contract.get(source) if contract else None)
-		for fieldname, source in SUMMARY_FIELDS.items()
-	}
+	values = get_employee_summary_values(contract)
 	frappe.db.set_value("Employee", employee, values, update_modified=False)
 
 
-def build_successor(source, change_type, start_date, end_date=None, contract_type=None):
+def build_successor(source, change_type, start_date, duration_months=None, contract_type=None):
 	require_contract_manager()
 	if source.docstatus != 1 or source.status not in ACTIVE_STATUSES:
 		frappe.throw(_("Only an active or scheduled submitted contract can have a successor."))
@@ -118,8 +134,9 @@ def build_successor(source, change_type, start_date, end_date=None, contract_typ
 			"previous_contract": source.name,
 			"change_type": change_type,
 			"start_date": start_date,
-			"end_date": end_date if contract_type == "Fixed Term" else None,
-			"probation_end_date": end_date if contract_type == "Probationary" else None,
+			"contract_duration_months": duration_months if contract_type != "Permanent" else None,
+			"end_date": None,
+			"probation_end_date": None,
 			"contract_type": contract_type,
 			"signed_contract": None,
 			"employee_acceptance_date": None,

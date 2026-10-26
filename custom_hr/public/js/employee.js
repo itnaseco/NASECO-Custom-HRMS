@@ -32,6 +32,7 @@ frappe.ui.form.on("Employee", {
 							fields: [
 								{ fieldname: "contract_type", fieldtype: "Select", label: __("Contract Type"), options: "Probationary\nFixed Term\nPermanent", reqd: 1 },
 								{ fieldname: "start_date", fieldtype: "Date", label: __("Start Date"), default: frm.doc.date_of_joining || frappe.datetime.get_today(), reqd: 1 },
+								{ fieldname: "contract_duration_months", fieldtype: "Int", label: __("Contract Duration (Months)"), depends_on: "eval:doc.contract_type!='Permanent'", mandatory_depends_on: "eval:doc.contract_type!='Permanent'" },
 							],
 							primary_action_label: __("Create Draft"),
 							primary_action(values) {

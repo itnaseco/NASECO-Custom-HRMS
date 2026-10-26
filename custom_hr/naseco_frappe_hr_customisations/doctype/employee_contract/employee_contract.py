@@ -3,11 +3,12 @@ from __future__ import annotations
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_days, add_months, date_diff, getdate
+from frappe.utils import add_days, add_months, cint, date_diff, getdate
 
 from custom_hr.contract_management.services import (
 	ACTIVE_STATUSES,
 	build_successor,
+	calculate_contract_end_date,
 	calculate_status,
 	require_contract_manager,
 	set_projected_retirement_date,
@@ -20,6 +21,7 @@ from custom_hr.contract_management.services import (
 class EmployeeContract(Document):
 	def validate(self):
 		self.validate_employee()
+		self.set_contract_end_date()
 		self.validate_dates_and_type()
 		self.validate_probation()
 		set_projected_retirement_date(self)
@@ -66,8 +68,22 @@ class EmployeeContract(Document):
 				frappe.throw(_("Probation end date must be after the start date."))
 			self.end_date = None
 		else:
-			if self.end_date:
-				frappe.throw(_("Permanent contracts must not have an end date."))
+			self.contract_duration_months = None
+			self.end_date = None
+			self.probation_end_date = None
+
+	def set_contract_end_date(self):
+		if self.contract_type == "Permanent":
+			return
+		self.contract_duration_months = cint(self.contract_duration_months)
+		if self.contract_duration_months <= 0:
+			frappe.throw(_("Contract duration must be a positive number of months."))
+		end_date = calculate_contract_end_date(self.start_date, self.contract_duration_months)
+		if self.contract_type == "Probationary":
+			self.probation_end_date = end_date
+			self.end_date = None
+		else:
+			self.end_date = end_date
 			self.probation_end_date = None
 
 	def validate_probation(self):
@@ -111,8 +127,8 @@ class EmployeeContract(Document):
 				frappe.throw(_("Employee has already had a probationary contract ({0}).").format(existing))
 
 	@frappe.whitelist(methods=["POST"])
-	def make_successor(self, change_type, start_date, end_date=None, contract_type=None):
-		return build_successor(self, change_type, start_date, end_date, contract_type).name
+	def make_successor(self, change_type, start_date, duration_months=None, contract_type=None):
+		return build_successor(self, change_type, start_date, duration_months, contract_type).name
 
 	@frappe.whitelist(methods=["POST"])
 	def terminate(self, category, termination_date, reason):
