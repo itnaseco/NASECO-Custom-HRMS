@@ -8,7 +8,7 @@ app_license = "mit"
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["hrms"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -43,7 +43,7 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Employee": "public/js/employee.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -148,13 +148,13 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
+scheduler_events = {
 # 	"all": [
 # 		"custom_hr.tasks.all"
 # 	],
-# 	"daily": [
-# 		"custom_hr.tasks.daily"
-# 	],
+	"daily": [
+		"custom_hr.contract_management.scheduled_tasks.process_contracts"
+	],
 # 	"hourly": [
 # 		"custom_hr.tasks.hourly"
 # 	],
@@ -164,7 +164,9 @@ app_license = "mit"
 # 	"monthly": [
 # 		"custom_hr.tasks.monthly"
 # 	],
-# }
+}
+
+after_migrate = ["custom_hr.setup.install_employee_custom_fields"]
 
 # Testing
 # -------
