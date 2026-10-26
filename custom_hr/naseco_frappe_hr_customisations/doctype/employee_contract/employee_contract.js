@@ -59,8 +59,20 @@ function show_successor_dialog(frm, change_type) {
 	dialog.show();
 }
 
+function create_probation_action(frm, action_type) {
+	frappe.new_doc("Contract Probation Action", {
+		contract: frm.doc.name,
+		action_type,
+		decision_date: frappe.datetime.get_today(),
+		effective_date: frappe.datetime.get_today(),
+	});
+}
+
 frappe.ui.form.on("Employee Contract", {
 	refresh(frm) {
+		if (frm.is_new() && frm.doc.contract_type !== "Probationary") {
+			frm.set_df_property("contract_type", "options", "Fixed Term\nPermanent");
+		}
 		if (frm.doc.docstatus !== 1) return;
 
 		const status = frm.doc.status;
@@ -82,6 +94,21 @@ frappe.ui.form.on("Employee Contract", {
 		}
 		if (status === "Scheduled") {
 			frm.add_custom_button(__("Amend Contract"), () => show_successor_dialog(frm, "Amendment"), __("Contract"));
+		}
+
+		if (frm.doc.has_probation) {
+			frm.add_custom_button(__("Probation History"), () => {
+				frappe.set_route("List", "Contract Probation Action", { contract: frm.doc.name });
+			}, __("Probation"));
+		}
+		if (
+			frm.doc.has_probation &&
+			!["Confirmed", "Terminated"].includes(frm.doc.probation_status) &&
+			!["Terminated", "Superseded", "Expired"].includes(status)
+		) {
+			frm.add_custom_button(__("Confirm Employee"), () => create_probation_action(frm, "Confirmation"), __("Probation"));
+			frm.add_custom_button(__("Extend Probation"), () => create_probation_action(frm, "Extension"), __("Probation"));
+			frm.add_custom_button(__("Terminate During Probation"), () => create_probation_action(frm, "Termination"), __("Probation"));
 		}
 
 		if (!["Scheduled", "Active", "Expiring"].includes(status)) return;

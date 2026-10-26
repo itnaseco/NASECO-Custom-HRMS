@@ -4,7 +4,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, date_diff, today
 
-from custom_hr.contract_management.services import calculate_status, sync_employee_summary
+from custom_hr.contract_management.services import calculate_status, get_effective_end_date, sync_employee_summary
+from custom_hr.naseco_frappe_hr_customisations.doctype.employee_contract.employee_contract import (
+	calculate_probation_status,
+)
 
 
 def process_contracts():
@@ -21,6 +24,7 @@ def process_contracts():
 
 def process_contract(row, settings):
 	doc = frappe.get_doc("Employee Contract", row.name)
+	process_probation(doc, settings)
 	new_status = calculate_status(doc)
 	if new_status != doc.status:
 		doc.db_set("status", new_status, update_modified=False)
@@ -30,7 +34,7 @@ def process_contract(row, settings):
 				frappe.db.set_value("Employee Contract", doc.previous_contract, "status", "Superseded")
 		sync_employee_summary(doc if new_status in ("Scheduled", "Active", "Expiring") else None, doc.employee)
 
-	end_date = doc.end_date or doc.probation_end_date
+	end_date = get_effective_end_date(doc)
 	if not end_date or new_status == "Expired":
 		if new_status == "Expired":
 			notify_expired_active_employee(doc)
@@ -50,7 +54,7 @@ def get_or_create_review(contract, settings):
 		{
 			"doctype": "Contract Review",
 			"contract": contract.name,
-			"due_date": add_days(contract.end_date or contract.probation_end_date, -int(settings.review_lead_days)),
+			"due_date": add_days(get_effective_end_date(contract), -int(settings.review_lead_days)),
 		}
 	).insert(ignore_permissions=True)
 
@@ -92,6 +96,41 @@ def get_role_emails(role):
 	return frappe.get_all(
 		"User", filters={"name": ("in", users), "enabled": 1}, pluck="email"
 	) if users else []
+
+
+def process_probation(contract, settings):
+	if not contract.has_probation or contract.probation_status in ("Confirmed", "Terminated"):
+		return
+	new_status = calculate_probation_status(contract)
+	if new_status != contract.probation_status:
+		contract.db_set("probation_status", new_status, update_modified=False)
+		sync_employee_summary(contract)
+
+	days_left = date_diff(contract.probation_end_date, today())
+	for threshold in sorted({7, 14, int(settings.probation_review_lead_days or 30)}):
+		if days_left <= threshold:
+			notify_probation_due(contract, days_left, threshold, settings.hr_manager_role)
+			break
+
+
+def notify_probation_due(contract, days_left, threshold, manager_role):
+	key = f"probation-due:{contract.name}:{threshold}"
+	if frappe.cache.get_value(key):
+		return
+	recipients = get_role_emails(manager_role)
+	if not recipients:
+		return
+	frappe.sendmail(
+		recipients=recipients,
+		subject=_("Probation decision due for {0}").format(contract.employee_name),
+		message=_(
+			"The probation period on contract {0} reaches its current end date in {1} day(s). "
+			"Record confirmation, an agreed extension, or termination before the deadline."
+		).format(contract.name, days_left),
+		reference_doctype="Employee Contract",
+		reference_name=contract.name,
+	)
+	frappe.cache.set_value(key, 1, expires_in_sec=86400 * 120)
 
 
 def notify_expired_active_employee(contract):

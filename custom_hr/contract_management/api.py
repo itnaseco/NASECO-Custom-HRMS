@@ -4,7 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days
 
-from custom_hr.contract_management.services import require_contract_manager
+from custom_hr.contract_management.services import get_effective_end_date, require_contract_manager
 
 
 @frappe.whitelist()
@@ -30,7 +30,14 @@ def get_contract_context(employee):
 
 
 @frappe.whitelist(methods=["POST"])
-def create_contract(employee, contract_type, start_date, contract_duration_months=None):
+def create_contract(
+	employee,
+	contract_type,
+	start_date,
+	contract_duration_months=None,
+	has_probation=0,
+	probation_duration_months=None,
+):
 	require_contract_manager()
 	if not frappe.db.exists("Employee", employee):
 		frappe.throw(_("Employee does not exist."))
@@ -42,6 +49,8 @@ def create_contract(employee, contract_type, start_date, contract_duration_month
 			"contract_duration_months": contract_duration_months,
 			"start_date": start_date,
 			"change_type": "New",
+			"has_probation": has_probation,
+			"probation_duration_months": probation_duration_months,
 		}
 	).insert().name
 
@@ -53,7 +62,7 @@ def start_contract_review(contract):
 	if existing:
 		return existing
 	doc = frappe.get_doc("Employee Contract", contract)
-	end_date = doc.end_date or doc.probation_end_date
+	end_date = get_effective_end_date(doc)
 	if not end_date:
 		frappe.throw(_("This contract has no reviewable end date."))
 	lead_days = frappe.db.get_single_value("Contract Management Settings", "review_lead_days") or 60

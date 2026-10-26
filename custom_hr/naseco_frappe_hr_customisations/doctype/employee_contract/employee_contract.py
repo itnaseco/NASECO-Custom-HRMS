@@ -3,13 +3,15 @@ from __future__ import annotations
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_days, add_months, cint, date_diff, getdate
+from frappe.utils import add_days, add_months, cint, date_diff, getdate, today
 
 from custom_hr.contract_management.services import (
 	ACTIVE_STATUSES,
 	build_successor,
 	calculate_contract_end_date,
 	calculate_status,
+	get_effective_end_date,
+	get_probation_review_lead_days,
 	require_contract_manager,
 	set_projected_retirement_date,
 	sync_employee_summary,
@@ -23,9 +25,9 @@ class EmployeeContract(Document):
 		self.validate_employee()
 		self.set_contract_end_date()
 		self.validate_dates_and_type()
-		self.validate_probation()
+		self.set_and_validate_probation()
 		set_projected_retirement_date(self)
-		end_date = self.end_date or self.probation_end_date
+		end_date = get_effective_end_date(self)
 		self.next_review_date = add_days(end_date, -60) if end_date else None
 		if self.docstatus == 0:
 			self.status = "Draft"
@@ -36,6 +38,8 @@ class EmployeeContract(Document):
 			frappe.throw(_("Signed contract and employee acceptance date are required before submission."))
 		validate_no_overlap(self)
 		self.status = calculate_status(self)
+		if self.has_probation:
+			self.probation_status = calculate_probation_status(self)
 
 	def on_submit(self):
 		if self.previous_contract and getdate(self.start_date) <= getdate():
@@ -59,6 +63,10 @@ class EmployeeContract(Document):
 				frappe.throw(_("Previous contract must belong to the same employee."))
 
 	def validate_dates_and_type(self):
+		if self.is_new() and self.change_type == "New" and self.contract_type == "Probationary":
+			frappe.throw(
+				_("Create a Fixed Term or Permanent contract and enable Has Probation instead.")
+			)
 		if self.contract_type == "Fixed Term":
 			if not self.end_date or getdate(self.end_date) <= getdate(self.start_date):
 				frappe.throw(_("Fixed Term end date must be after the start date."))
@@ -84,9 +92,46 @@ class EmployeeContract(Document):
 			self.end_date = None
 		else:
 			self.end_date = end_date
-			self.probation_end_date = None
 
-	def validate_probation(self):
+	def set_and_validate_probation(self):
+		# Keep the former standalone Probationary contract behavior for legacy data.
+		if self.contract_type == "Probationary":
+			self.has_probation = 1
+			self.probation_start_date = self.start_date
+			self.original_probation_end_date = self.original_probation_end_date or self.probation_end_date
+			self.probation_review_date = add_days(self.probation_end_date, -get_probation_review_lead_days())
+			self.validate_legacy_probation()
+			return
+
+		if not self.has_probation:
+			self.probation_duration_months = None
+			self.probation_start_date = None
+			self.original_probation_end_date = None
+			self.probation_end_date = None
+			self.probation_review_date = None
+			self.probation_status = "Not Applicable"
+			self.confirmation_date = None
+			return
+
+		if self.change_type not in ("New", "Amendment"):
+			frappe.throw(_("Probation can only be assigned when creating a new employment contract."))
+		months = cint(self.probation_duration_months)
+		if months <= 0 or months > 6:
+			frappe.throw(_("The initial probation period must be between one and six months."))
+		self.probation_duration_months = months
+		self.probation_start_date = self.start_date
+		calculated_end = calculate_contract_end_date(self.start_date, months)
+		if self.change_type == "New" or not self.original_probation_end_date:
+			self.original_probation_end_date = calculated_end
+		if self.change_type == "New" or not self.probation_end_date:
+			self.probation_end_date = calculated_end
+		self.probation_review_date = add_days(self.probation_end_date, -get_probation_review_lead_days())
+		if self.end_date and getdate(self.probation_end_date) > getdate(self.end_date):
+			frappe.throw(_("Probation cannot extend beyond the employment contract end date."))
+		if self.probation_status not in ("Extended", "Confirmed", "Terminated"):
+			self.probation_status = calculate_probation_status(self)
+
+	def validate_legacy_probation(self):
 		if self.contract_type != "Probationary":
 			return
 		months = date_diff(self.probation_end_date, self.start_date)
@@ -132,3 +177,18 @@ class EmployeeContract(Document):
 	def terminate(self, category, termination_date, reason):
 		terminate_contract(self, category, termination_date, reason)
 		return self.name
+
+
+def calculate_probation_status(doc, reference_date=None):
+	if not doc.has_probation and doc.contract_type != "Probationary":
+		return "Not Applicable"
+	if doc.probation_status in ("Confirmed", "Terminated"):
+		return doc.probation_status
+	reference_date = getdate(reference_date or today())
+	if getdate(doc.probation_start_date or doc.start_date) > reference_date:
+		return "Pending"
+	if getdate(doc.probation_end_date) < reference_date:
+		return "Decision Overdue"
+	if getdate(doc.probation_end_date) <= add_days(reference_date, 30):
+		return "Evaluation Due"
+	return "Extended" if doc.probation_status == "Extended" else "Under Probation"

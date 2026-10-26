@@ -11,6 +11,8 @@ SUMMARY_FIELDS = {
 	"custom_contract_duration_months": "contract_duration_months",
 	"custom_contract_start_date": "start_date",
 	"custom_probation_end_date": "probation_end_date",
+	"custom_probation_status": "probation_status",
+	"custom_confirmation_date": "confirmation_date",
 	"custom_contract_status": "status",
 	"custom_next_contract_review_date": "next_review_date",
 	"custom_projected_retirement_date": "projected_retirement_date",
@@ -27,12 +29,16 @@ def require_contract_manager():
 
 
 def get_effective_end_date(doc):
-	return doc.end_date or doc.probation_end_date
+	return doc.probation_end_date if doc.contract_type == "Probationary" else doc.end_date
 
 
 def calculate_contract_end_date(start_date, duration_months):
 	"""Return the inclusive last day of a whole-month contract period."""
 	return add_months(add_days(start_date, -1), cint(duration_months))
+
+
+def get_probation_review_lead_days():
+	return cint(frappe.db.get_single_value("Contract Management Settings", "probation_review_lead_days")) or 30
 
 
 def get_employee_summary_values(contract=None):
@@ -45,6 +51,7 @@ def get_employee_summary_values(contract=None):
 	values["custom_contract_duration_months"] = cint(
 		values.get("custom_contract_duration_months")
 	)
+	values["custom_has_probation"] = cint(contract.get("has_probation")) if contract else 0
 	values["custom_contract_end_date"] = get_effective_end_date(contract) if contract else None
 	return values
 
@@ -78,9 +85,9 @@ def validate_no_overlap(doc):
 	if doc.previous_contract and doc.change_type == "Amendment":
 		filters["name"] = ("not in", (doc.name or "", doc.previous_contract))
 	for row in frappe.get_all(
-		"Employee Contract", filters=filters, fields=["name", "end_date", "probation_end_date"]
+		"Employee Contract", filters=filters, fields=["name", "contract_type", "end_date", "probation_end_date"]
 	):
-		existing_end = row.end_date or row.probation_end_date
+		existing_end = get_effective_end_date(row)
 		if not existing_end or getdate(existing_end) >= getdate(doc.start_date):
 			frappe.throw(_("Contract dates overlap with {0}.").format(frappe.bold(row.name)))
 
@@ -192,6 +199,20 @@ def build_successor(source, change_type, start_date, duration_months=None, contr
 			"termination_reason": None,
 		},
 	)
+	if change_type != "Amendment":
+		data.update(
+			{
+				"has_probation": 0,
+				"probation_duration_months": None,
+				"probation_start_date": None,
+				"original_probation_end_date": None,
+				"probation_end_date": None,
+				"probation_review_date": None,
+				"probation_status": "Not Applicable",
+				"confirmation_date": None,
+				"probation_contract_document": None,
+			}
+		)
 	return frappe.get_doc(data).insert()
 
 

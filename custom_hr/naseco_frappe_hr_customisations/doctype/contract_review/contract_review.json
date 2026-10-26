@@ -18,7 +18,7 @@
   {"fieldname":"hr_recommendation","fieldtype":"Text Editor","label":"HR Recommendation","permlevel":1},
   {"default":"Pending","fieldname":"decision","fieldtype":"Select","label":"Decision","options":"Pending\nRenew\nExtend\nConfirm\nConvert to Permanent\nDo Not Renew","reqd":1},
   {"fieldname":"column_break_decision","fieldtype":"Column Break"},
-  {"fieldname":"proposed_contract_type","fieldtype":"Select","label":"Proposed Contract Type","options":"Probationary\nFixed Term\nPermanent"},
+  {"fieldname":"proposed_contract_type","fieldtype":"Select","label":"Proposed Contract Type","options":"Fixed Term\nPermanent"},
   {"fieldname":"proposed_start_date","fieldtype":"Date","label":"Proposed Start Date"},
   {"fieldname":"proposed_end_date","fieldtype":"Date","label":"Proposed End Date"},
   {"fieldname":"review_notes","fieldtype":"Small Text","label":"Review Notes","permlevel":1},

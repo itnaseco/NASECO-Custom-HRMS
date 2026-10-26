@@ -63,10 +63,31 @@ def install_employee_custom_fields():
 					"read_only": 1,
 				},
 				{
+					"fieldname": "custom_has_probation",
+					"fieldtype": "Check",
+					"label": "Probation Applicable",
+					"insert_after": "custom_probation_end_date",
+					"read_only": 1,
+				},
+				{
+					"fieldname": "custom_probation_status",
+					"fieldtype": "Data",
+					"label": "Probation Status",
+					"insert_after": "custom_has_probation",
+					"read_only": 1,
+				},
+				{
+					"fieldname": "custom_confirmation_date",
+					"fieldtype": "Date",
+					"label": "Confirmation Date",
+					"insert_after": "custom_probation_status",
+					"read_only": 1,
+				},
+				{
 					"fieldname": "custom_contract_status",
 					"fieldtype": "Data",
 					"label": "Contract Status",
-					"insert_after": "custom_probation_end_date",
+					"insert_after": "custom_confirmation_date",
 					"read_only": 1,
 				},
 				{
@@ -112,6 +133,7 @@ def install_tenure_contract_menu():
 	)
 	for label, link_to in (
 		("Employee Contracts", "Employee Contract"),
+		("Probation Decisions", "Contract Probation Action"),
 		("Contract Reviews", "Contract Review"),
 		("Contract Management Settings", "Contract Management Settings"),
 	):

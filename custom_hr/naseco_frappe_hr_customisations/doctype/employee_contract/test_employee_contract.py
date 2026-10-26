@@ -6,12 +6,14 @@ from frappe.tests import UnitTestCase
 from custom_hr.contract_management.services import (
 	calculate_contract_end_date,
 	calculate_status,
+	get_effective_end_date,
 	get_allowed_successor_actions,
 	get_employee_summary_values,
 	validate_successor_transition,
 )
 from custom_hr.naseco_frappe_hr_customisations.doctype.employee_contract.employee_contract import (
 	EmployeeContract,
+	calculate_probation_status,
 )
 
 
@@ -38,6 +40,48 @@ class TestEmployeeContractStatus(UnitTestCase):
 		values = get_employee_summary_values()
 		self.assertEqual(values["custom_contract_duration_months"], 0)
 		self.assertIsNone(values["custom_current_contract"])
+		self.assertEqual(values["custom_has_probation"], 0)
+
+	def test_fixed_term_probation_is_inside_full_contract(self):
+		doc = SimpleNamespace(
+			contract_type="Fixed Term",
+			change_type="New",
+			has_probation=1,
+			probation_duration_months="6",
+			start_date="2026-01-01",
+			end_date="2028-12-31",
+			probation_start_date=None,
+			original_probation_end_date=None,
+			probation_end_date=None,
+			probation_review_date=None,
+			probation_status=None,
+			confirmation_date=None,
+			docstatus=0,
+		)
+		EmployeeContract.set_and_validate_probation(doc)
+		self.assertEqual(str(doc.probation_end_date), "2026-06-30")
+		self.assertEqual(str(doc.end_date), "2028-12-31")
+		self.assertEqual(str(doc.probation_review_date), "2026-05-31")
+
+	def test_probation_status_becomes_due_then_overdue(self):
+		doc = SimpleNamespace(
+			contract_type="Fixed Term",
+			has_probation=1,
+			start_date="2026-01-01",
+			probation_start_date="2026-01-01",
+			probation_end_date="2026-06-30",
+			probation_status="Under Probation",
+		)
+		self.assertEqual(calculate_probation_status(doc, "2026-06-01"), "Evaluation Due")
+		self.assertEqual(calculate_probation_status(doc, "2026-07-01"), "Decision Overdue")
+
+	def test_permanent_contract_does_not_expire_at_probation_end(self):
+		doc = SimpleNamespace(
+			contract_type="Permanent",
+			end_date=None,
+			probation_end_date="2026-06-30",
+		)
+		self.assertIsNone(get_effective_end_date(doc))
 
 	def test_scheduled_contract(self):
 		doc = self._contract("2026-11-01", "2027-10-31")
