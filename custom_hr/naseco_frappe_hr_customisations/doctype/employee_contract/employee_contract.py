@@ -97,8 +97,6 @@ class EmployeeContract(Document):
 				frappe.throw(_("A probation extension must follow a probationary contract."))
 			if months > date_diff(add_months(self.start_date, 6), self.start_date):
 				frappe.throw(_("A probation extension cannot exceed six months."))
-			if not self.employee_acceptance_date:
-				frappe.throw(_("Employee acceptance is required for a probation extension."))
 			other_extension = frappe.db.exists(
 				"Employee Contract",
 				{

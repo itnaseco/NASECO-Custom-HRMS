@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
+import frappe
 from frappe.tests import UnitTestCase
 
 from custom_hr.contract_management.services import (
 	calculate_contract_end_date,
 	calculate_status,
+	get_allowed_successor_actions,
 	get_employee_summary_values,
+	validate_successor_transition,
 )
 from custom_hr.naseco_frappe_hr_customisations.doctype.employee_contract.employee_contract import (
 	EmployeeContract,
@@ -56,12 +59,40 @@ class TestEmployeeContractStatus(UnitTestCase):
 		doc = self._contract("2025-01-01", "2027-01-01", status="Terminated")
 		self.assertEqual(calculate_status(doc, "2026-10-26"), "Terminated")
 
+	def test_expired_fixed_term_contract_can_be_renewed(self):
+		doc = self._contract("2025-01-01", "2025-12-31", status="Expired")
+		self.assertEqual(get_allowed_successor_actions(doc), ["Renewal"])
+		self.assertEqual(
+			validate_successor_transition(doc, "Renewal", "2026-01-01", "Fixed Term"),
+			"Fixed Term",
+		)
+
+	def test_active_fixed_term_contract_can_be_extended(self):
+		doc = self._contract("2026-01-01", "2026-12-31")
+		self.assertIn("Extension", get_allowed_successor_actions(doc))
+		self.assertEqual(
+			validate_successor_transition(doc, "Extension", "2027-01-01", "Fixed Term"),
+			"Fixed Term",
+		)
+
+	def test_extension_cannot_overlap_current_contract(self):
+		doc = self._contract("2026-01-01", "2026-12-31")
+		with self.assertRaises(frappe.ValidationError):
+			validate_successor_transition(doc, "Extension", "2026-12-31", "Fixed Term")
+
+	def test_expired_contract_cannot_be_extended(self):
+		doc = self._contract("2025-01-01", "2025-12-31", status="Expired")
+		with self.assertRaises(frappe.ValidationError):
+			validate_successor_transition(doc, "Extension", "2026-01-01", "Fixed Term")
+
 	@staticmethod
 	def _contract(start_date, end_date, status="Active"):
 		return type(
 			"ContractStub",
 			(),
 			{
+				"docstatus": 1,
+				"contract_type": "Fixed Term",
 				"start_date": start_date,
 				"end_date": end_date,
 				"probation_end_date": None,

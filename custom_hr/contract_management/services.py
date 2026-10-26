@@ -75,6 +75,8 @@ def validate_no_overlap(doc):
 		"name": ("!=", doc.name or ""),
 		"start_date": ("<=", end_date or "9999-12-31"),
 	}
+	if doc.previous_contract and doc.change_type == "Amendment":
+		filters["name"] = ("not in", (doc.name or "", doc.previous_contract))
 	for row in frappe.get_all(
 		"Employee Contract", filters=filters, fields=["name", "end_date", "probation_end_date"]
 	):
@@ -120,14 +122,59 @@ def sync_employee_summary(contract=None, employee=None):
 	frappe.db.set_value("Employee", employee, values, update_modified=False)
 
 
+def get_allowed_successor_actions(source):
+	if source.docstatus != 1 or source.status in ("Terminated", "Superseded"):
+		return []
+	if source.status == "Expired":
+		return ["Renewal"] if source.contract_type == "Fixed Term" else []
+	if source.status == "Scheduled":
+		return ["Amendment"]
+	if source.contract_type == "Probationary":
+		return ["Extension", "Confirmation", "Amendment"]
+	if source.contract_type == "Fixed Term":
+		return ["Extension", "Renewal", "Amendment"]
+	if source.contract_type == "Permanent":
+		return ["Amendment"]
+	return []
+
+
+def validate_successor_transition(source, change_type, start_date, contract_type):
+	allowed = get_allowed_successor_actions(source)
+	if change_type not in allowed:
+		frappe.throw(
+			_("{0} is not allowed for a {1} contract with status {2}.").format(
+				change_type, source.contract_type, source.status
+			)
+		)
+
+	contract_type = contract_type or source.contract_type
+	if change_type in ("Renewal", "Extension") and contract_type != source.contract_type:
+		frappe.throw(_("A {0} must retain the existing contract type.").format(change_type.lower()))
+	if change_type == "Confirmation" and contract_type == "Probationary":
+		frappe.throw(_("Confirmation must create a Fixed Term or Permanent contract."))
+	if change_type == "Amendment" and contract_type != source.contract_type:
+		frappe.throw(_("Use Renewal or Confirmation to change the contract type."))
+
+	end_date = get_effective_end_date(source)
+	if change_type in ("Renewal", "Extension", "Confirmation") and end_date:
+		if not start_date:
+			frappe.throw(_("A start date is required for {0}.").format(change_type.lower()))
+		minimum_start = add_days(end_date, 1)
+		if getdate(start_date) < getdate(minimum_start):
+			frappe.throw(
+				_("{0} must start on or after {1}, after the current contract ends.").format(
+					change_type, frappe.format_value(minimum_start, {"fieldtype": "Date"})
+				)
+			)
+	return contract_type
+
+
 def build_successor(source, change_type, start_date, duration_months=None, contract_type=None):
 	require_contract_manager()
-	if source.docstatus != 1 or source.status not in ACTIVE_STATUSES:
-		frappe.throw(_("Only an active or scheduled submitted contract can have a successor."))
+	contract_type = validate_successor_transition(source, change_type, start_date, contract_type)
 	data = source.as_dict(no_nulls=False)
 	for key in ("name", "owner", "creation", "modified", "modified_by", "docstatus", "idx", "status"):
 		data.pop(key, None)
-	contract_type = contract_type or source.contract_type
 	data.update(
 		{
 			"doctype": "Employee Contract",
