@@ -3,7 +3,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 
 def install_employee_custom_fields():
-	"""Install the read-only Employee contract summary maintained by this app."""
+	"""Install Employee contract integration and the Tenure navigation entries."""
 	create_custom_fields(
 		{
 			"Employee": [
@@ -88,3 +88,44 @@ def install_employee_custom_fields():
 		update=True,
 	)
 	frappe.clear_cache(doctype="Employee")
+	install_tenure_contract_menu()
+
+
+def install_tenure_contract_menu():
+	"""Add contract management links to the site layer of HRMS v16's Tenure sidebar."""
+	if not frappe.db.exists("DocType", "Custom Sidebar"):
+		return
+
+	from frappe.desk.doctype.custom_sidebar.custom_sidebar import add_site_sidebar_item
+
+	add_site_sidebar_item(
+		"Tenure",
+		{
+			"type": "Section Break",
+			"label": "Contract Management",
+			"icon": "file-signature",
+			"indent": 1,
+			"collapsible": 1,
+			"keep_closed": 0,
+			"open_in_new_tab": 0,
+		},
+	)
+	for label, link_to in (
+		("Employee Contracts", "Employee Contract"),
+		("Contract Reviews", "Contract Review"),
+		("Contract Management Settings", "Contract Management Settings"),
+	):
+		add_site_sidebar_item(
+			"Tenure",
+			{
+				"type": "Link",
+				"label": label,
+				"link_type": "DocType",
+				"link_to": link_to,
+				"child": 1,
+				"indent": 0,
+				"collapsible": 1,
+				"open_in_new_tab": 0,
+			},
+		)
+	frappe.clear_cache()
