@@ -77,10 +77,16 @@ frappe.ui.form.on("Employee Contract", {
 
 		const status = frm.doc.status;
 		const type = frm.doc.contract_type;
-		if (status === "Expired" && type === "Fixed Term") {
+		const has_probation = frm.doc.has_probation || type === "Probationary";
+		const probation_in_progress = has_probation &&
+			["Pending", "Under Probation", "Evaluation Due", "Extended", "Decision Overdue"].includes(
+				frm.doc.probation_status || "Under Probation",
+			) && status !== "Scheduled";
+
+		if (!probation_in_progress && status === "Expired" && type === "Fixed Term") {
 			frm.add_custom_button(__("Renew Contract"), () => show_successor_dialog(frm, "Renewal"), __("Contract"));
 		}
-		if (["Active", "Expiring"].includes(status)) {
+		if (!probation_in_progress && ["Active", "Expiring"].includes(status)) {
 			if (["Fixed Term", "Probationary"].includes(type)) {
 				frm.add_custom_button(__("Extend Contract"), () => show_successor_dialog(frm, "Extension"), __("Contract"));
 			}
@@ -96,13 +102,14 @@ frappe.ui.form.on("Employee Contract", {
 			frm.add_custom_button(__("Amend Contract"), () => show_successor_dialog(frm, "Amendment"), __("Contract"));
 		}
 
-		if (frm.doc.has_probation) {
+		if (has_probation) {
 			frm.add_custom_button(__("Probation History"), () => {
 				frappe.set_route("List", "Contract Probation Action", { contract: frm.doc.name });
 			}, __("Probation"));
 		}
 		if (
-			frm.doc.has_probation &&
+			has_probation &&
+			["Active", "Expiring"].includes(status) &&
 			!["Confirmed", "Terminated"].includes(frm.doc.probation_status) &&
 			!["Terminated", "Superseded", "Expired"].includes(status)
 		) {
@@ -111,7 +118,7 @@ frappe.ui.form.on("Employee Contract", {
 			frm.add_custom_button(__("Terminate During Probation"), () => create_probation_action(frm, "Termination"), __("Probation"));
 		}
 
-		if (!["Scheduled", "Active", "Expiring"].includes(status)) return;
+		if (probation_in_progress || !["Scheduled", "Active", "Expiring"].includes(status)) return;
 		frm.add_custom_button(__("Terminate"), () => {
 			const dialog = new frappe.ui.Dialog({
 				title: __("Terminate Contract"),

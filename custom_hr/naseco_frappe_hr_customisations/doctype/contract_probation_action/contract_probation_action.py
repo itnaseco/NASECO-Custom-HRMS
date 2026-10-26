@@ -46,7 +46,13 @@ class ContractProbationAction(Document):
 				update_modified=False,
 			)
 		else:
-			terminate_contract(contract, "Poor-performance Dismissal", self.effective_date, self.reason)
+			terminate_contract(
+				contract,
+				"Poor-performance Dismissal",
+				self.effective_date,
+				self.reason,
+				probation_action=True,
+			)
 			contract.db_set("probation_status", "Terminated", update_modified=False)
 		sync_employee_summary(employee=contract.employee)
 

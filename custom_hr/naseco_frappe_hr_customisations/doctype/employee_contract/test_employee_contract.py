@@ -119,6 +119,27 @@ class TestEmployeeContractStatus(UnitTestCase):
 			"Fixed Term",
 		)
 
+	def test_open_probation_blocks_normal_contract_actions(self):
+		doc = self._contract(
+			"2026-01-01",
+			"2028-12-31",
+			has_probation=1,
+			probation_status="Under Probation",
+		)
+		self.assertEqual(get_allowed_successor_actions(doc), [])
+		with self.assertRaises(frappe.ValidationError):
+			validate_successor_transition(doc, "Amendment", "2026-10-26", "Fixed Term")
+
+	def test_scheduled_probation_contract_can_only_be_amended(self):
+		doc = self._contract(
+			"2027-01-01",
+			"2029-12-31",
+			status="Scheduled",
+			has_probation=1,
+			probation_status="Pending",
+		)
+		self.assertEqual(get_allowed_successor_actions(doc), ["Amendment"])
+
 	def test_extension_cannot_overlap_current_contract(self):
 		doc = self._contract("2026-01-01", "2026-12-31")
 		with self.assertRaises(frappe.ValidationError):
@@ -130,13 +151,21 @@ class TestEmployeeContractStatus(UnitTestCase):
 			validate_successor_transition(doc, "Extension", "2026-01-01", "Fixed Term")
 
 	@staticmethod
-	def _contract(start_date, end_date, status="Active"):
+	def _contract(
+		start_date,
+		end_date,
+		status="Active",
+		has_probation=0,
+		probation_status=None,
+	):
 		return type(
 			"ContractStub",
 			(),
 			{
 				"docstatus": 1,
 				"contract_type": "Fixed Term",
+				"has_probation": has_probation,
+				"probation_status": probation_status,
 				"start_date": start_date,
 				"end_date": end_date,
 				"probation_end_date": None,

@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import add_days, add_months, add_years, cint, getdate, today
 
 ACTIVE_STATUSES = ("Scheduled", "Active", "Expiring")
+OPEN_PROBATION_STATUSES = ("Pending", "Under Probation", "Evaluation Due", "Extended", "Decision Overdue")
 SUMMARY_FIELDS = {
 	"custom_current_contract": "name",
 	"custom_contract_type": "contract_type",
@@ -30,6 +31,14 @@ def require_contract_manager():
 
 def get_effective_end_date(doc):
 	return doc.probation_end_date if doc.contract_type == "Probationary" else doc.end_date
+
+
+def has_open_probation(doc):
+	if not (getattr(doc, "has_probation", 0) or doc.contract_type == "Probationary"):
+		return False
+	if doc.status == "Scheduled":
+		return False
+	return (getattr(doc, "probation_status", None) or "Under Probation") in OPEN_PROBATION_STATUSES
 
 
 def calculate_contract_end_date(start_date, duration_months):
@@ -132,10 +141,12 @@ def sync_employee_summary(contract=None, employee=None):
 def get_allowed_successor_actions(source):
 	if source.docstatus != 1 or source.status in ("Terminated", "Superseded"):
 		return []
-	if source.status == "Expired":
-		return ["Renewal"] if source.contract_type == "Fixed Term" else []
 	if source.status == "Scheduled":
 		return ["Amendment"]
+	if has_open_probation(source):
+		return []
+	if source.status == "Expired":
+		return ["Renewal"] if source.contract_type == "Fixed Term" else []
 	if source.contract_type == "Probationary":
 		return ["Extension", "Confirmation", "Amendment"]
 	if source.contract_type == "Fixed Term":
@@ -216,10 +227,14 @@ def build_successor(source, change_type, start_date, duration_months=None, contr
 	return frappe.get_doc(data).insert()
 
 
-def terminate_contract(contract, category, termination_date, reason):
+def terminate_contract(contract, category, termination_date, reason, probation_action=False):
 	require_contract_manager()
 	if contract.docstatus != 1 or contract.status in ("Terminated", "Superseded", "Expired"):
 		frappe.throw(_("This contract cannot be terminated in its current state."))
+	if has_open_probation(contract) and not probation_action:
+		frappe.throw(
+			_("Use Terminate During Probation while the employee's probation decision is unresolved.")
+		)
 	if getdate(termination_date) < getdate(contract.start_date):
 		frappe.throw(_("Termination date cannot precede the contract start date."))
 	if not category or not reason:
