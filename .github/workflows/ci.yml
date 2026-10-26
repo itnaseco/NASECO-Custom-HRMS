@@ -1,4 +1,3 @@
-
 name: CI
 
 on:
@@ -6,101 +5,107 @@ on:
     branches:
       - develop
   pull_request:
+  workflow_dispatch:
 
 concurrency:
-  group: develop-custom_hr-${{ github.event.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   tests:
+    name: Server Tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    name: Server
+    timeout-minutes: 45
 
     services:
       redis-cache:
-        image: redis:alpine
+        image: redis:7-alpine
         ports:
           - 13000:6379
       redis-queue:
-        image: redis:alpine
+        image: redis:7-alpine
         ports:
           - 11000:6379
       mariadb:
-        image: mariadb:10.6
+        image: mariadb:11.8
         env:
-          MYSQL_ROOT_PASSWORD: root
+          MARIADB_ROOT_PASSWORD: root
         ports:
           - 3306:3306
-        options: --health-cmd="mariadb-admin ping" --health-interval=5s --health-timeout=2s --health-retries=3
+        options: >-
+          --health-cmd="mariadb-admin ping -proot"
+          --health-interval=5s
+          --health-timeout=2s
+          --health-retries=10
 
     steps:
       - name: Clone
-        uses: actions/checkout@v3
-
-      - name: Find tests
-        run: |
-          echo "Finding tests"
-          grep -rn "def test" > /dev/null
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
+          python-version: "3.14"
+          cache: pip
 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v6
         with:
-          node-version: 18
-          check-latest: true
+          node-version: 24
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-            ${{ runner.os }}-
-
-      - name: Get yarn cache directory path
-        id: yarn-cache-dir-path
-        run: 'echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT'
-
-      - uses: actions/cache@v4
-        id: yarn-cache
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-
-      - name: Install MariaDB Client
-        run: sudo apt-get install mariadb-client-10.6
-
-      - name: Setup
+      - name: Validate source
         run: |
-          pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
-          mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
-          mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
+          python -m compileall -q custom_hr
+          if grep -R --line-number --exclude-dir=.git '^<<<<<<< ' .; then
+            echo "Unresolved merge conflict markers found"
+            exit 1
+          fi
 
-      - name: Install
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes mariadb-client
+
+      - name: Initialize Frappe v16 bench
+        run: |
+          python -m pip install --upgrade pip frappe-bench
+          bench init \
+            --frappe-branch version-16 \
+            --skip-assets \
+            --skip-redis-config-generation \
+            --python "$(which python)" \
+            /home/runner/frappe-bench
+
+      - name: Install app dependencies
         working-directory: /home/runner/frappe-bench
         run: |
-          bench get-app custom_hr $GITHUB_WORKSPACE
+          bench get-app --branch version-16 erpnext https://github.com/frappe/erpnext.git
+          bench get-app --branch version-16 hrms https://github.com/frappe/hrms.git
+          bench get-app custom_hr "$GITHUB_WORKSPACE"
           bench setup requirements --dev
-          bench new-site --db-root-password root --admin-password admin test_site
-          bench --site test_site install-app custom_hr
-          bench build
-        env:
-          CI: 'Yes'
 
-      - name: Run Tests
+      - name: Create test site
+        working-directory: /home/runner/frappe-bench
+        run: |
+          mariadb --host 127.0.0.1 --port 3306 --user root --password=root \
+            --execute "SET GLOBAL character_set_server = 'utf8mb4'; SET GLOBAL collation_server = 'utf8mb4_unicode_ci';"
+          bench new-site \
+            --db-host 127.0.0.1 \
+            --db-port 3306 \
+            --db-root-password root \
+            --admin-password admin \
+            test_site
+          bench --site test_site install-app erpnext
+          bench --site test_site install-app hrms
+          bench --site test_site install-app custom_hr
+
+      - name: Run tests
         working-directory: /home/runner/frappe-bench
         run: |
           bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app custom_hr
+          bench --site test_site run-tests --app custom_hr --test-category unit
         env:
           TYPE: server
