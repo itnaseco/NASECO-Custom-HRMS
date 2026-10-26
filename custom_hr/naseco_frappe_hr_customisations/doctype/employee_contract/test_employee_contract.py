@@ -9,6 +9,7 @@ from custom_hr.contract_management.services import (
 	get_effective_end_date,
 	get_allowed_successor_actions,
 	get_employee_summary_values,
+	is_probation_review_window_open,
 	validate_successor_transition,
 )
 from custom_hr.naseco_frappe_hr_customisations.doctype.employee_contract.employee_contract import (
@@ -126,9 +127,18 @@ class TestEmployeeContractStatus(UnitTestCase):
 			has_probation=1,
 			probation_status="Under Probation",
 		)
-		self.assertEqual(get_allowed_successor_actions(doc), [])
+		self.assertEqual(get_allowed_successor_actions(doc), ["Amendment"])
+		self.assertEqual(
+			validate_successor_transition(doc, "Amendment", "2026-10-26", "Fixed Term"),
+			"Fixed Term",
+		)
 		with self.assertRaises(frappe.ValidationError):
-			validate_successor_transition(doc, "Amendment", "2026-10-26", "Fixed Term")
+			validate_successor_transition(doc, "Extension", "2029-01-01", "Fixed Term")
+
+	def test_probation_decisions_open_on_review_date(self):
+		doc = SimpleNamespace(probation_review_date="2026-05-31")
+		self.assertFalse(is_probation_review_window_open(doc, "2026-05-30"))
+		self.assertTrue(is_probation_review_window_open(doc, "2026-05-31"))
 
 	def test_scheduled_probation_contract_can_only_be_amended(self):
 		doc = self._contract(
@@ -166,6 +176,7 @@ class TestEmployeeContractStatus(UnitTestCase):
 				"contract_type": "Fixed Term",
 				"has_probation": has_probation,
 				"probation_status": probation_status,
+				"probation_review_date": "2026-05-31" if has_probation else None,
 				"start_date": start_date,
 				"end_date": end_date,
 				"probation_end_date": None,

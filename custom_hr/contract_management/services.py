@@ -41,6 +41,13 @@ def has_open_probation(doc):
 	return (getattr(doc, "probation_status", None) or "Under Probation") in OPEN_PROBATION_STATUSES
 
 
+def is_probation_review_window_open(doc, reference_date=None):
+	review_date = getattr(doc, "probation_review_date", None)
+	if not review_date:
+		return False
+	return getdate(reference_date or today()) >= getdate(review_date)
+
+
 def calculate_contract_end_date(start_date, duration_months):
 	"""Return the inclusive last day of a whole-month contract period."""
 	return add_months(add_days(start_date, -1), cint(duration_months))
@@ -144,7 +151,7 @@ def get_allowed_successor_actions(source):
 	if source.status == "Scheduled":
 		return ["Amendment"]
 	if has_open_probation(source):
-		return []
+		return ["Amendment"]
 	if source.status == "Expired":
 		return ["Renewal"] if source.contract_type == "Fixed Term" else []
 	if source.contract_type == "Probationary":

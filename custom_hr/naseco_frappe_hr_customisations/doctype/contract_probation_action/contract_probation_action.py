@@ -7,6 +7,7 @@ from frappe.utils import add_days, add_months, cint, getdate
 
 from custom_hr.contract_management.services import (
 	get_probation_review_lead_days,
+	is_probation_review_window_open,
 	require_contract_manager,
 	sync_employee_summary,
 	terminate_contract,
@@ -68,6 +69,12 @@ class ContractProbationAction(Document):
 			frappe.throw(_("Probation decisions cannot be recorded against a {0} contract.").format(contract.status))
 		if contract.probation_status in ("Confirmed", "Terminated"):
 			frappe.throw(_("Probation has already been {0}.").format(contract.probation_status.lower()))
+		if self.action_type in ("Confirmation", "Extension") and not is_probation_review_window_open(contract):
+			frappe.throw(
+				_("Confirmation and probation extension become available on {0}.").format(
+					frappe.format_value(contract.probation_review_date, {"fieldtype": "Date"})
+				)
+			)
 		if getdate(self.effective_date) < getdate(contract.start_date):
 			frappe.throw(_("The effective date cannot precede the contract start date."))
 
