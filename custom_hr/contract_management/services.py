@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import add_days, add_months, add_years, cint, getdate, today
 
 ACTIVE_STATUSES = ("Scheduled", "Active", "Expiring")
+CURRENT_STATUSES = (*ACTIVE_STATUSES, "Pending Termination")
 OPEN_PROBATION_STATUSES = ("Pending", "Under Probation", "Evaluation Due", "Extended", "Decision Overdue")
 SUMMARY_FIELDS = {
 	"custom_current_contract": "name",
@@ -94,7 +95,7 @@ def validate_no_overlap(doc):
 	filters = {
 		"employee": doc.employee,
 		"docstatus": 1,
-		"status": ("in", ACTIVE_STATUSES),
+		"status": ("in", CURRENT_STATUSES),
 		"name": ("!=", doc.name or ""),
 		"start_date": ("<=", end_date or "9999-12-31"),
 	}
@@ -112,10 +113,14 @@ def sync_employee_summary(contract=None, employee=None):
 	employee = employee or contract.employee
 	if not employee or not frappe.db.exists("Employee", employee):
 		return
-	if contract is None or contract.status not in ACTIVE_STATUSES:
+	if contract is None or contract.status not in CURRENT_STATUSES:
 		name = frappe.db.get_value(
 			"Employee Contract",
-			{"employee": employee, "docstatus": 1, "status": ("in", ("Active", "Expiring"))},
+			{
+				"employee": employee,
+				"docstatus": 1,
+				"status": ("in", ("Active", "Expiring", "Pending Termination")),
+			},
 			"name",
 			order_by="start_date desc",
 		)
@@ -145,8 +150,81 @@ def sync_employee_summary(contract=None, employee=None):
 	frappe.db.set_value("Employee", employee, values, update_modified=False)
 
 
+def set_employee_active(contract):
+	"""Activate an Employee only when a submitted contract is currently effective."""
+	if contract.status not in ("Active", "Expiring"):
+		return
+	employee = frappe.get_doc("Employee", contract.employee)
+	if employee.status == "Active" and not employee.relieving_date:
+		return
+	employee.status = "Active"
+	employee.relieving_date = None
+	employee.reason_for_leaving = None
+	employee.flags.ignore_permissions = True
+	employee.save()
+
+
+def set_employee_left(contract):
+	"""Apply an effective contract exit through ERPNext's Employee lifecycle."""
+	employee = frappe.get_doc("Employee", contract.employee)
+	employee.status = "Left"
+	employee.relieving_date = contract.termination_date
+	employee.reason_for_leaving = contract.termination_reason
+	employee.custom_last_contract = contract.name
+	employee.custom_last_contract_status = "Terminated"
+	employee.custom_last_contract_end_date = contract.termination_date
+	employee.custom_last_termination_category = contract.termination_category
+	employee.custom_last_termination_reason = contract.termination_reason
+	employee.flags.ignore_permissions = True
+	employee.save()
+
+
+def finalize_contract_termination(contract):
+	"""Finalize both records in one transaction; Employee validation may block the exit."""
+	contract.db_set("status", "Terminated", update_modified=False)
+	if contract.get("has_probation") and contract.probation_status == "Pending Termination":
+		contract.db_set("probation_status", "Terminated", update_modified=False)
+	set_employee_left(contract)
+	sync_employee_summary(employee=contract.employee)
+
+
+def reconcile_employee_lifecycle(employee):
+	"""Repair Employee state from submitted contract state without inventing an exit."""
+	current_name = frappe.db.get_value(
+		"Employee Contract",
+		{
+			"employee": employee,
+			"docstatus": 1,
+			"status": ("in", ("Active", "Expiring", "Pending Termination")),
+		},
+		"name",
+		order_by="start_date desc",
+	)
+	if current_name:
+		contract = frappe.get_doc("Employee Contract", current_name)
+		if contract.status in ("Active", "Expiring"):
+			set_employee_active(contract)
+		sync_employee_summary(contract)
+		return contract.name
+
+	terminated_name = frappe.db.get_value(
+		"Employee Contract",
+		{"employee": employee, "docstatus": 1, "status": "Terminated"},
+		"name",
+		order_by="termination_date desc, modified desc",
+	)
+	if terminated_name:
+		contract = frappe.get_doc("Employee Contract", terminated_name)
+		set_employee_left(contract)
+		sync_employee_summary(employee=employee)
+		return contract.name
+
+	sync_employee_summary(employee=employee)
+	return None
+
+
 def get_allowed_successor_actions(source):
-	if source.docstatus != 1 or source.status in ("Terminated", "Superseded"):
+	if source.docstatus != 1 or source.status in ("Terminated", "Superseded", "Pending Termination"):
 		return []
 	if source.status == "Scheduled":
 		return ["Amendment"]
@@ -236,7 +314,12 @@ def build_successor(source, change_type, start_date, duration_months=None, contr
 
 def terminate_contract(contract, category, termination_date, reason, probation_action=False):
 	require_contract_manager()
-	if contract.docstatus != 1 or contract.status in ("Terminated", "Superseded", "Expired"):
+	if contract.docstatus != 1 or contract.status in (
+		"Terminated",
+		"Pending Termination",
+		"Superseded",
+		"Expired",
+	):
 		frappe.throw(_("This contract cannot be terminated in its current state."))
 	if has_open_probation(contract) and not probation_action:
 		frappe.throw(
@@ -246,15 +329,19 @@ def terminate_contract(contract, category, termination_date, reason, probation_a
 		frappe.throw(_("Termination date cannot precede the contract start date."))
 	if not category or not reason:
 		frappe.throw(_("Termination category and reason are required."))
+	termination_date = getdate(termination_date)
 	contract.db_set(
 		{
-			"status": "Terminated",
+			"status": "Pending Termination" if termination_date > getdate(today()) else "Terminated",
 			"termination_category": category,
 			"termination_date": termination_date,
 			"termination_reason": reason,
 		},
 	)
-	sync_employee_summary(employee=contract.employee)
+	if termination_date > getdate(today()):
+		sync_employee_summary(contract)
+	else:
+		finalize_contract_termination(contract)
 
 
 def set_projected_retirement_date(doc):

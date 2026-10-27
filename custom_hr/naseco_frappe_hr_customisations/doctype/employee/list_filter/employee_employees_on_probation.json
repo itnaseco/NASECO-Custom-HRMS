@@ -1,0 +1,21 @@
+{
+ "columns": "[{\"fieldname\": \"employee_name\", \"label\": \"Full Name\", \"width\": 254}, {\"fieldname\": \"status_field\", \"label\": \"Status\", \"width\": 107}, {\"fieldname\": \"branch\", \"label\": \"Branch\", \"width\": 89}, {\"fieldname\": \"department\", \"label\": \"Department\", \"width\": 200}, {\"fieldname\": \"custom_contract_duration_months\", \"label\": \"Contract Duration (Months)\", \"width\": 200}, {\"fieldname\": \"custom_contract_start_date\", \"label\": \"Contract Start Date\", \"width\": 200}, {\"fieldname\": \"custom_probation_end_date\", \"label\": \"Probation End Date\", \"width\": 200}, {\"fieldname\": \"custom_next_contract_review_date\", \"label\": \"Next Contract Review Date\", \"width\": 200}, {\"fieldname\": \"custom_contract_end_date\", \"label\": \"Contract End Date\", \"width\": 200}]",
+ "creation": "2026-10-27 11:36:47.449452",
+ "docstatus": 0,
+ "doctype": "List Filter",
+ "filter_name": "Employees on Probation",
+ "filters": "[[\"Employee\", \"status\", \"=\", \"Active\"], [\"Employee\", \"custom_probation_status\", \"=\", \"Under Probation\"]]",
+ "for_user": "",
+ "idx": 0,
+ "is_standard": 1,
+ "layout_order": 1,
+ "modified": "2026-10-27 11:38:28.044628",
+ "modified_by": "Administrator",
+ "module": "NASECO Frappe HR Customisations",
+ "name": "Employee-Employees on Probation",
+ "owner": "Administrator",
+ "reference_doctype": "Employee",
+ "route_signature": "custom_probation_status=Under Probation&status=Active",
+ "sort_field": "creation",
+ "sort_order": "desc"
+}

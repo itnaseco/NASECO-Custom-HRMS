@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests import UnitTestCase
@@ -10,6 +11,8 @@ from custom_hr.contract_management.services import (
 	get_allowed_successor_actions,
 	get_employee_summary_values,
 	is_probation_review_window_open,
+	set_employee_left,
+	terminate_contract,
 	validate_successor_transition,
 )
 from custom_hr.naseco_frappe_hr_customisations.doctype.employee_contract.employee_contract import (
@@ -103,6 +106,52 @@ class TestEmployeeContractStatus(UnitTestCase):
 	def test_terminal_status_is_preserved(self):
 		doc = self._contract("2025-01-01", "2027-01-01", status="Terminated")
 		self.assertEqual(calculate_status(doc, "2026-10-26"), "Terminated")
+
+	def test_pending_termination_has_no_successor_actions(self):
+		doc = self._contract("2026-01-01", "2027-12-31", status="Pending Termination")
+		self.assertEqual(get_allowed_successor_actions(doc), [])
+
+	def test_employee_exit_fields_are_set_from_contract(self):
+		employee = MagicMock()
+		contract = SimpleNamespace(
+			employee="HR-EMP-00001",
+			name="EC-2026-00001",
+			termination_date="2026-10-27",
+			termination_reason="Probation requirements were not met.",
+			termination_category="Poor-performance Dismissal",
+		)
+		with patch(
+			"custom_hr.contract_management.services.frappe.get_doc",
+			return_value=employee,
+		):
+			set_employee_left(contract)
+		self.assertEqual(employee.status, "Left")
+		self.assertEqual(employee.relieving_date, "2026-10-27")
+		self.assertEqual(employee.custom_last_contract, contract.name)
+		employee.save.assert_called_once()
+
+	def test_future_termination_stays_pending_until_effective_date(self):
+		class Contract(SimpleNamespace):
+			def db_set(self, values, **kwargs):
+				for fieldname, value in values.items():
+					setattr(self, fieldname, value)
+
+		contract = Contract(
+			docstatus=1,
+			status="Active",
+			start_date="2026-01-01",
+			employee="HR-EMP-00001",
+			contract_type="Fixed Term",
+			has_probation=0,
+		)
+		with (
+			patch("custom_hr.contract_management.services.require_contract_manager"),
+			patch("custom_hr.contract_management.services.sync_employee_summary") as sync_summary,
+			patch("custom_hr.contract_management.services.today", return_value="2026-10-27"),
+		):
+			terminate_contract(contract, "Resignation", "2026-11-30", "Employee resigned.")
+		self.assertEqual(contract.status, "Pending Termination")
+		sync_summary.assert_called_once_with(contract)
 
 	def test_expired_fixed_term_contract_can_be_renewed(self):
 		doc = self._contract("2025-01-01", "2025-12-31", status="Expired")

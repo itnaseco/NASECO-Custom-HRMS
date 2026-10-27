@@ -54,7 +54,11 @@ class ContractProbationAction(Document):
 				self.reason,
 				probation_action=True,
 			)
-			contract.db_set("probation_status", "Terminated", update_modified=False)
+			contract.db_set(
+				"probation_status",
+				"Terminated" if contract.status == "Terminated" else "Pending Termination",
+				update_modified=False,
+			)
 		sync_employee_summary(employee=contract.employee)
 
 	def before_cancel(self):
@@ -65,9 +69,9 @@ class ContractProbationAction(Document):
 		contract = frappe.get_doc("Employee Contract", self.contract)
 		if contract.docstatus != 1 or not (contract.has_probation or contract.contract_type == "Probationary"):
 			frappe.throw(_("Select a submitted contract with an applicable probation period."))
-		if contract.status in ("Terminated", "Superseded", "Expired"):
+		if contract.status in ("Terminated", "Pending Termination", "Superseded", "Expired"):
 			frappe.throw(_("Probation decisions cannot be recorded against a {0} contract.").format(contract.status))
-		if contract.probation_status in ("Confirmed", "Terminated"):
+		if contract.probation_status in ("Confirmed", "Pending Termination", "Terminated"):
 			frappe.throw(_("Probation has already been {0}.").format(contract.probation_status.lower()))
 		if self.action_type in ("Confirmation", "Extension") and not is_probation_review_window_open(contract):
 			frappe.throw(

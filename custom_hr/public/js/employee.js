@@ -6,14 +6,16 @@ frappe.ui.form.on("Employee", {
 			args: { employee: frm.doc.name },
 			callback(r) {
 				const context = r.message || {};
+				if (context.has_contract_history) {
+					frm.add_custom_button(__("Contract History"), () => {
+						frappe.set_route("List", "Employee Contract", { employee: frm.doc.name });
+					}, __("Contract"));
+				}
 				if (context.current) {
 					frm.add_custom_button(__("View Current Contract"), () => {
 						frappe.set_route("Form", "Employee Contract", context.current.name);
 					}, __("Contract"));
-					frm.add_custom_button(__("Contract History"), () => {
-						frappe.set_route("List", "Employee Contract", { employee: frm.doc.name });
-					}, __("Contract"));
-					if (context.can_manage) {
+					if (context.can_manage && context.current.status !== "Pending Termination") {
 						frm.add_custom_button(__("Start Review"), () => {
 							frappe.call({
 								method: "custom_hr.contract_management.api.start_contract_review",
@@ -25,7 +27,11 @@ frappe.ui.form.on("Employee", {
 							});
 						}, __("Contract"));
 					}
-				} else if (context.can_manage) {
+				} else if (
+					context.can_manage &&
+					!context.has_contract_history &&
+					frm.doc.status !== "Left"
+				) {
 					frm.add_custom_button(__("Create Contract"), () => {
 						const dialog = new frappe.ui.Dialog({
 							title: __("Create Employee Contract"),

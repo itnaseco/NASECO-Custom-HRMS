@@ -13,6 +13,7 @@ from custom_hr.contract_management.services import (
 	get_effective_end_date,
 	get_probation_review_lead_days,
 	require_contract_manager,
+	set_employee_active,
 	set_projected_retirement_date,
 	sync_employee_summary,
 	terminate_contract,
@@ -46,6 +47,7 @@ class EmployeeContract(Document):
 			previous = frappe.get_doc("Employee Contract", self.previous_contract)
 			if previous.status in ACTIVE_STATUSES:
 				previous.db_set("status", "Superseded")
+		set_employee_active(self)
 		sync_employee_summary(self)
 
 	def before_cancel(self):

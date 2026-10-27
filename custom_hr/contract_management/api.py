@@ -13,7 +13,11 @@ def get_contract_context(employee):
 		frappe.throw(_("Not permitted to read this employee."), frappe.PermissionError)
 	current = frappe.db.get_value(
 		"Employee Contract",
-		{"employee": employee, "docstatus": 1, "status": ("in", ("Active", "Expiring"))},
+		{
+			"employee": employee,
+			"docstatus": 1,
+			"status": ("in", ("Active", "Expiring", "Pending Termination")),
+		},
 		["name", "status", "contract_type"],
 		as_dict=True,
 		order_by="start_date desc",
@@ -26,7 +30,13 @@ def get_contract_context(employee):
 			as_dict=True,
 			order_by="start_date asc",
 		)
-	return {"current": current, "can_manage": bool({"HR Manager", "System Manager"} & set(frappe.get_roles()))}
+	history_count = frappe.db.count("Employee Contract", {"employee": employee})
+	return {
+		"current": current,
+		"has_contract_history": bool(history_count),
+		"contract_count": history_count,
+		"can_manage": bool({"HR Manager", "System Manager"} & set(frappe.get_roles())),
+	}
 
 
 @frappe.whitelist(methods=["POST"])

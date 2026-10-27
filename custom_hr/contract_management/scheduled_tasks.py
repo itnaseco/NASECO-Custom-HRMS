@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, date_diff, today
+from frappe.utils import add_days, date_diff, getdate, today
 
-from custom_hr.contract_management.services import calculate_status, get_effective_end_date, sync_employee_summary
+from custom_hr.contract_management.services import (
+	calculate_status,
+	finalize_contract_termination,
+	get_effective_end_date,
+	set_employee_active,
+	sync_employee_summary,
+)
 from custom_hr.naseco_frappe_hr_customisations.doctype.employee_contract.employee_contract import (
 	calculate_probation_status,
 )
@@ -16,7 +22,10 @@ def process_contracts():
 		return
 	for row in frappe.get_all(
 		"Employee Contract",
-		filters={"docstatus": 1, "status": ("in", ("Scheduled", "Active", "Expiring"))},
+		filters={
+			"docstatus": 1,
+			"status": ("in", ("Scheduled", "Active", "Expiring", "Pending Termination")),
+		},
 		fields=["name", "employee", "previous_contract", "end_date", "probation_end_date", "status"],
 	):
 		process_contract(row, settings)
@@ -24,6 +33,10 @@ def process_contracts():
 
 def process_contract(row, settings):
 	doc = frappe.get_doc("Employee Contract", row.name)
+	if doc.status == "Pending Termination":
+		if doc.termination_date and getdate(doc.termination_date) <= getdate(today()):
+			finalize_contract_termination(doc)
+		return
 	process_probation(doc, settings)
 	new_status = calculate_status(doc)
 	if new_status != doc.status:
@@ -32,6 +45,8 @@ def process_contract(row, settings):
 			previous_status = frappe.db.get_value("Employee Contract", doc.previous_contract, "status")
 			if previous_status in ("Scheduled", "Active", "Expiring"):
 				frappe.db.set_value("Employee Contract", doc.previous_contract, "status", "Superseded")
+		if new_status in ("Active", "Expiring"):
+			set_employee_active(doc)
 		sync_employee_summary(doc if new_status in ("Scheduled", "Active", "Expiring") else None, doc.employee)
 
 	end_date = get_effective_end_date(doc)
