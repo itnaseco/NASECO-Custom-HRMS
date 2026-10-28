@@ -104,8 +104,11 @@ frappe.ui.form.on("Employee Contract", {
 		}
 
 		if (has_probation) {
+			frm.add_custom_button(__("View Probation Details"), () => {
+				custom_hr.probation_dialogs.show_details(frm.doc.name);
+			}, action_group);
 			frm.add_custom_button(__("Probation History"), () => {
-				frappe.set_route("List", "Contract Probation Action", { contract: frm.doc.name });
+				custom_hr.probation_dialogs.show_history(frm.doc.name);
 			}, action_group);
 		}
 		if (

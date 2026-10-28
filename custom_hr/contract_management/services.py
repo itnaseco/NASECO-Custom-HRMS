@@ -286,7 +286,7 @@ def build_successor(source, change_type, start_date, duration_months=None, contr
 			"start_date": start_date,
 			"contract_duration_months": duration_months if contract_type != "Permanent" else None,
 			"end_date": None,
-			"probation_end_date": None,
+			"probation_end_date": source.probation_end_date if change_type == "Amendment" else None,
 			"contract_type": contract_type,
 			"signed_contract": None,
 			"employee_acceptance_date": None,

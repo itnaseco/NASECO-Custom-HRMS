@@ -26,7 +26,7 @@ required_apps = ["hrms"]
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/custom_hr/css/custom_hr.css"
-# app_include_js = "/assets/custom_hr/js/custom_hr.js"
+app_include_js = "/assets/custom_hr/js/probation_dialogs.js?v=20261028.2"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/custom_hr/css/custom_hr.css"
@@ -243,4 +243,3 @@ after_migrate = ["custom_hr.setup.install_employee_custom_fields"]
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-
